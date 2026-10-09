@@ -1,46 +1,47 @@
 document.addEventListener('DOMContentLoaded', async () => {
-
-    // PRODUCTION ENDPOINTS
+    
     const RENDER_API = 'https://wifi-api-1.onrender.com';
     const N8N_PRODUCTION_WEBHOOK = 'https://n8n.kabisakabisa.store/webhook/customer-select-plan';
 
     let capturedMac = null;
 
-    // 1. AUTOMATIC MAC CAPTURE VIA RENDER SCAPY ARP ENGINE
-    async function fetchRealMacAddress() {
+    // 1. EXTRACT REAL HARDWARE MAC ONLY (STRICT PRODUCTION CHECK)
+    function captureProductionMac() {
         const macDisplay = document.getElementById('mac-display');
-        macDisplay.textContent = "Resolving Network Identifier...";
+        const urlParams = new URLSearchParams(window.location.search);
+        
+        // Check standard router parameters: ?mac=, ?client_mac=, or ?usermac=
+        const rawMac = urlParams.get('mac') || urlParams.get('client_mac') || urlParams.get('usermac');
 
-        try {
-            // Check URL parameters first (if redirected by router)
-            const urlParams = new URLSearchParams(window.location.search);
-            const urlMac = urlParams.get('mac');
+        // Regex pattern for valid MAC address format (XX:XX:XX:XX:XX:XX or XX-XX-XX-XX-XX-XX)
+        const macRegex = /^([0-9A-Fa-f]{2}[:-]){5}([0-9A-Fa-f]{2})$/;
 
-            if (urlMac && urlMac !== 'UNKNOWN' && urlMac !== 'AA:BB:CC:DD:EE:FF') {
-                capturedMac = urlMac.toUpperCase();
-            } else {
-                // Call Render API to perform server-side ARP lookup
-                const res = await fetch(`${RENDER_API}/get-mac`);
-                const data = await res.json();
-                if (data.mac_address) {
-                    capturedMac = data.mac_address.toUpperCase();
-                }
-            }
-        } catch (err) {
-            console.error("Failed to query Render MAC resolver:", err);
+        if (rawMac && macRegex.test(rawMac)) {
+            capturedMac = rawMac.toUpperCase().replace(/-/g, ':');
+            localStorage.setItem('valid_device_mac', capturedMac);
+            macDisplay.textContent = capturedMac;
+            macDisplay.style.color = '#16a34a'; // Green indicator
+            return true;
         }
 
-        // Final local backup if network ARP ping times out
-        if (!capturedMac) {
-            capturedMac = localStorage.getItem('user_mac') || 'FC:3F:FC:AF:92:F0';
+        // Check if device previously stored a valid hardware MAC in this browser session
+        const storedMac = localStorage.getItem('valid_device_mac');
+        if (storedMac && macRegex.test(storedMac)) {
+            capturedMac = storedMac;
+            macDisplay.textContent = capturedMac;
+            macDisplay.style.color = '#16a34a';
+            return true;
         }
 
-        localStorage.setItem('user_mac', capturedMac);
-        macDisplay.textContent = capturedMac;
+        // NO VALID HARDWARE MAC FOUND: DO NOT MOCK OR FALLBACK!
+        capturedMac = null;
+        macDisplay.textContent = "MAC NOT DETECTED (CONNECT VIA WI-FI PORTAL)";
+        macDisplay.style.color = '#cc3333'; // Red alert indicator
+        return false;
     }
 
-    // 2. VERIFY SUBSCRIPTION / WHITELIST STATUS
-    async function verifyAccessStatus() {
+    // 2. CHECK ACCESS AGAINST RENDER BACKEND
+    async function checkCurrentAccess() {
         if (!capturedMac) return;
 
         try {
@@ -50,39 +51,38 @@ document.addEventListener('DOMContentLoaded', async () => {
             if (data.access === 'granted') {
                 const statusMsg = document.getElementById('status-message');
                 statusMsg.style.color = '#16a34a';
-                statusMsg.textContent = 'Active Internet Session Found! Redirecting...';
+                statusMsg.textContent = 'Active Internet Session Found! Granting connection...';
 
                 setTimeout(() => {
                     window.location.href = 'https://www.google.com';
                 }, 1500);
             }
         } catch (err) {
-            console.error("Access verification error:", err);
+            console.error("Render access check failed:", err);
         }
     }
 
-    // Run automated MAC capture and verification on page load
-    await fetchRealMacAddress();
-    await verifyAccessStatus();
+    const hasValidMac = captureProductionMac();
+    if (hasValidMac) {
+        await checkCurrentAccess();
+    }
 
-    // 3. HERO SLIDER ANIMATION
+    // 3. HERO SLIDER CYCLE
     const slides = document.querySelectorAll('.slide');
     let currentSlide = 0;
-
     setInterval(() => {
         slides[currentSlide].classList.remove('active');
         currentSlide = (currentSlide + 1) % slides.length;
         slides[currentSlide].classList.add('active');
     }, 3500);
 
-    // 4. PLAN SELECTION LOGIC
+    // 4. PLAN SELECTION
     let selectedPlan = '24H';
     const planNameDisplay = document.getElementById('selected-plan-name');
     const planCards = document.querySelectorAll('.plan-card');
 
     planCards.forEach(card => {
         const btn = card.querySelector('.select-plan-btn');
-
         btn.addEventListener('click', () => {
             planCards.forEach(c => c.classList.remove('active'));
             card.classList.add('active');
@@ -96,18 +96,26 @@ document.addEventListener('DOMContentLoaded', async () => {
         });
     });
 
-    // 5. SUBMIT TO N8N WORKFLOW 1 WITH CAPTURED MAC
+    // 5. SUBMIT PAYMENT (STRICT BLOCK IF MAC IS MISSING)
     const form = document.getElementById('payment-form');
     const statusMsg = document.getElementById('status-message');
     const payBtn = document.getElementById('pay-btn');
 
     form.addEventListener('submit', async (e) => {
         e.preventDefault();
+
+        // FAIL-SAFE: Block payment processing if real MAC is absent
+        if (!capturedMac) {
+            statusMsg.style.color = '#cc3333';
+            statusMsg.innerHTML = '<strong>Security Error:</strong> Device physical MAC address could not be verified by the Wi-Fi gateway. Please disconnect and reconnect to the Wi-Fi network.';
+            return;
+        }
+
         const phoneInput = document.getElementById('phone').value.trim();
 
         payBtn.disabled = true;
         statusMsg.style.color = '#cc3333';
-        statusMsg.textContent = 'Sending M-Pesa STK Push to your phone...';
+        statusMsg.textContent = 'Initiating M-Pesa STK Push prompt...';
 
         try {
             const response = await fetch(N8N_PRODUCTION_WEBHOOK, {
@@ -116,19 +124,19 @@ document.addEventListener('DOMContentLoaded', async () => {
                 body: JSON.stringify({
                     plan_id: selectedPlan,
                     phone: phoneInput,
-                    mac_address: capturedMac  // True MAC captured via Render ARP
+                    mac_address: capturedMac // ALWAYS A REAL VERIFIED MAC
                 })
             });
 
             if (response.ok) {
                 statusMsg.style.color = '#16a34a';
-                statusMsg.textContent = 'STK Push Sent! Enter your M-Pesa PIN on your phone to complete activation.';
+                statusMsg.textContent = 'STK Push sent! Please enter your M-Pesa PIN on your phone to connect.';
             } else {
-                throw new Error('STK Push submission failed');
+                throw new Error('STK Push failed');
             }
         } catch (error) {
             statusMsg.style.color = '#cc3333';
-            statusMsg.textContent = 'Network error. Please confirm your phone number and try again.';
+            statusMsg.textContent = 'Network error. Please verify your phone number and try again.';
             payBtn.disabled = false;
         }
     });

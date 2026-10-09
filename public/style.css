@@ -93,7 +93,7 @@ body {
     letter-spacing: 0.5px;
 }
 
-/* MAIN CONTENT */
+/* MAIN CONTENT LAYOUT */
 .portal-body {
     max-width: 1120px;
     margin: 0 auto;
@@ -113,6 +113,7 @@ body {
     letter-spacing: -0.5px;
 }
 
+/* PLANS GRID */
 .plans-grid {
     display: grid;
     grid-template-columns: repeat(auto-fit, minmax(300px, 1fr));
@@ -183,6 +184,7 @@ body {
     width: 100%;
 }
 
+/* CHECKOUT CARD */
 .checkout-card {
     background: #ffffff;
     border: 3px solid #cc3333;
@@ -279,6 +281,7 @@ body {
     font-size: 0.95rem;
 }
 
+/* INFO CARDS */
 .info-grid {
     display: grid;
     grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
@@ -311,7 +314,7 @@ body {
     font-size: 0.9rem;
 }
 
-/* PATTERNED FOOTER */
+/* FOOTER (#DD2D4A) */
 .portal-footer {
     background-color: #DD2D4A;
     color: #ffffff;
